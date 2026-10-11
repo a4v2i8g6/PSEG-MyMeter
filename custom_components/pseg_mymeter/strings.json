@@ -1,0 +1,23 @@
+{
+  "title": "PSE&G MyMeter (experimental)",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect an existing MyMeter session",
+        "description": "Experimental only: PSE&G My Account SSO and SMS/email verification are NOT supported yet. Enter the Cookie header VALUE from a successful logged-in ChartData request in YOUR OWN Home Assistant instance. This is a sensitive session credential. The integration does not accept your account password.",
+        "data": {"session_cookie": "Authenticated MyMeter session cookie value"}
+      },
+      "reauth_confirm": {
+        "title": "MyMeter session expired",
+        "description": "Sign in to MyMeter using your browser, then enter a fresh Cookie header VALUE from a successful ChartData request in your Home Assistant instance.",
+        "data": {"session_cookie": "New authenticated session cookie value"}
+      }
+    },
+    "error": {
+      "invalid_cookie": "Enter a valid Cookie header value (not headers, HAR or cURL)",
+      "invalid_auth": "The session is not authenticated or has expired",
+      "cannot_connect": "Could not retrieve 15-minute consumption data. Check the portal chart selection and connection."
+    },
+    "abort": {"already_configured": "This MyMeter account is already configured", "reauth_successful": "MyMeter session updated"}
+  }
+}

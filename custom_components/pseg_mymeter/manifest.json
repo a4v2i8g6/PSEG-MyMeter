@@ -1,0 +1,11 @@
+{
+  "domain": "pseg_mymeter",
+  "name": "PSE&G MyMeter (experimental)",
+  "after_dependencies": ["recorder"],
+  "config_flow": true,
+  "documentation": "https://mysmartenergy.nj.pseg.com/",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
