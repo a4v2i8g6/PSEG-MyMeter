@@ -1,30 +1,18 @@
-# PSE&G MyMeter — diagnostic patch 0.1.2 (experimental)
+# PSE&G MyMeter diagnostic patch 0.1.3 (experimental)
 
-**Read-only diagnostic update. Does not implement PSE&G username/password login, Okta SSO, or email/SMS verification. No guarantee cookie-only authentication will work.**
+**This does not implement SSO or MFA and does not fix cookie-only authentication.**
 
-## Why this update
+Changes:
+- Sends the cache-busting `_` query parameter seen on working Chrome `ChartData` requests.
+- Handles JSON responses containing a UTF-8 BOM.
+- On an HTTP 200 non-JSON response, logs only HTTP status, a fixed/whitelisted MIME type, and response size in bytes. **No cookie, body content, URL, or authentication tokens are logged.**
 
-Version 0.1.1 returned `non_json` for any HTTP 200 response that was not valid meter JSON. This does not prove an invalid cookie. This update distinguishes these cases using **local response classification only**:
+## Installation (testing only)
 
-- `html_login`: MyMeter returned what looks like an HTML sign-in or SSO page.
-- `html_security`: MyMeter returned what looks like a security/bot challenge.
-- `html_other`: MyMeter returned another HTML page.
-- `text_other`: MyMeter returned other non-JSON text.
+1. Back up your Home Assistant `/config` folder and recorder database.
+2. Copy `custom_components/pseg_mymeter/` into your HA `/config/custom_components/` directory, replacing existing integration files.
+3. Restart Home Assistant and verify manifest version `0.1.3`.
+4. Retry setup privately with a valid session cookie (do not paste it into chats, issues, or screenshots).
+5. If you see `text_other`, open Home Assistant **Settings → System → Logs**, find the warning from `custom_components.pseg_mymeter.api` and share **only** HTTP status, MIME category, and bytes count.
 
-The classifier does **not** log or disclose raw responses, session cookies, headers, or redirect URLs. It also rejects a mistakenly pasted `Cookie:` prefix, regardless of capitalization, as `invalid_cookie`.
-
-## Install / retest
-
-1. Back up Home Assistant before modifying custom components. Test outside your production Energy database whenever possible.
-2. Extract this ZIP. Copy **only the contents** of `custom_components/pseg_mymeter/` over `/config/custom_components/pseg_mymeter/` (not the entire ZIP directory).
-3. Restart Home Assistant. Confirm the integration's installed manifest version is `0.1.2`.
-4. If the setup form is open, close and reopen it. Submit the **Cookie header value only**, in your own Home Assistant instance. Use an authenticated `ChartData` request, not `Chart`.
-5. Report the *error code or wording only*. **Never share cookies, network request headers, HAR files, cURL commands, raw responses, or account/meter identifiers.**
-
-If the error says `html_login` or `html_security`, repeatedly pasting a new cookie is unlikely to work. Implementing a real My Account SSO/verification flow (or a supported utility API) would be the next task. The native credential login is **not implemented** here.
-
-## Limitations
-
-- Even a working cookie expires and cannot be refreshed automatically by this version.
-- Browser fingerprint/TLS behavior may cause a remote service to respond differently to `aiohttp` than to Chrome.
-- Historical statistics and DST edge cases are experimental and not certified for production Energy data.
+The integration remains experimental and has not been live-tested against MyMeter. It does not offer a self-sustaining login. It must not be used as a reliable energy billing or accounting source.

@@ -5,11 +5,15 @@ response bodies, or redirect query strings to issue trackers / chat.
 """
 import asyncio
 import json
+import logging
+import time
 
 import aiohttp
 
 from .const import CHART_URL, MYMETER_ROOT
 from .parser import ChartDataError, extract_intervals
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AuthenticationRequired(Exception):
@@ -134,7 +138,12 @@ class MyMeterClient:
         }
         try:
             async with asyncio.timeout(25):
-                async with self.session.get(CHART_URL, headers=headers, allow_redirects=False) as resp:
+                async with self.session.get(
+                    CHART_URL,
+                    params={"_": str(time.time_ns() // 1_000_000)},
+                    headers=headers,
+                    allow_redirects=False,
+                ) as resp:
                     # Never follow a redirect: don't leak a session cookie to an
                     # external SSO domain. Do not record the Location URL.
                     if resp.status in (301, 302, 303, 307, 308):
@@ -149,9 +158,24 @@ class MyMeterClient:
                     if len(raw) > 10 * 1024 * 1024:
                         raise ServerError("MyMeter response too large.")
                     try:
-                        payload = json.loads(raw)
+                        # A UTF-8 BOM must not cause otherwise valid JSON to fail.
+                        payload = json.loads(raw.decode("utf-8-sig"))
                     except (ValueError, UnicodeError) as exc:
-                        response_error = classify_non_json(raw, resp.headers.get("Content-Type", ""))
+                        # Log only non-sensitive response metadata. Never log
+                        # bodies, cookies, URL/redirects, tokens, or headers.
+                        content_type = resp.content_type
+                        # Use a fixed allowlist so a malicious header value
+                        # cannot create log injection or expose custom data.
+                        mime = content_type if content_type in (
+                            "text/plain", "text/html", "application/json",
+                            "application/javascript", "text/javascript",
+                            "application/octet-stream", "application/xhtml+xml",
+                        ) else "other"
+                        _LOGGER.warning(
+                            "MyMeter returned non-JSON: HTTP %s, MIME %s, bytes %s",
+                            resp.status, mime, len(raw),
+                        )
+                        response_error = classify_non_json(raw, content_type)
                         raise response_error(
                             "MyMeter did not return meter JSON (safe response classification)."
                         ) from exc
