@@ -1,18 +1,48 @@
-# PSE&G MyMeter diagnostic patch 0.1.3 (experimental)
+# PSE&G MyMeter — Native Authentication Architecture (v0.2.0 scaffold)
 
-**This does not implement SSO or MFA and does not fix cookie-only authentication.**
+**Developer package. Not a working PSE&G login. Do not deploy it as an authentication update.**
+The existing v0.1.3 cookie-based integration files are included unchanged.
 
-Changes:
-- Sends the cache-busting `_` query parameter seen on working Chrome `ChartData` requests.
-- Handles JSON responses containing a UTF-8 BOM.
-- On an HTTP 200 non-JSON response, logs only HTTP status, a fixed/whitelisted MIME type, and response size in bytes. **No cookie, body content, URL, or authentication tokens are logged.**
+## What's implemented
 
-## Installation (testing only)
+- `custom_components/pseg_mymeter/native_auth.py` — provider-independent
+  session and SMS/email MFA state machine, with optional renewal hook.
+- `custom_components/pseg_mymeter/native_config_flow.py` — reusable Home
+  Assistant login, factor-choice, and OTP form steps, not yet connected to
+  `config_flow.py`.
+- Tests simulate successful SMS/email MFA, invalid codes, expired sessions,
+  renewal, and redaction of opaque secrets.
+- Existing energy/recorder statistics logic is untouched.
 
-1. Back up your Home Assistant `/config` folder and recorder database.
-2. Copy `custom_components/pseg_mymeter/` into your HA `/config/custom_components/` directory, replacing existing integration files.
-3. Restart Home Assistant and verify manifest version `0.1.3`.
-4. Retry setup privately with a valid session cookie (do not paste it into chats, issues, or screenshots).
-5. If you see `text_other`, open Home Assistant **Settings → System → Logs**, find the warning from `custom_components.pseg_mymeter.api` and share **only** HTTP status, MIME category, and bytes count.
+## Not yet implemented (blocking)
 
-The integration remains experimental and has not been live-tested against MyMeter. It does not offer a self-sustaining login. It must not be used as a reliable energy billing or accounting source.
+- A verified Okta/SAML authentication client specific to PSE&G's My Account,
+  including anti-bot/device checks and successful SAML ACS exchange.
+- PSE&G session persistence/cookie jar that survives restart, and renewal
+  behavior under real session expiry.
+- Enabling or exposing the new form steps in the installed integration.
+- Production account-level unique IDs, security review, and live validation
+  with PSE&G (without sharing account credentials or MFA secrets).
+
+The backend placeholder deliberately refuses live authentication. It never
+accepts/stores your PSE&G credentials. The successful authentication in unit
+tests is **simulated** using a fake provider; it is not evidence that the
+actual PSE&G portal supports an API-driven login.
+
+## Why it follows Cync
+
+Cync's integration separates HA UI (`config_flow`) from an authentication
+library (`pycync.Auth`). This package follows the same separation, allowing
+a provider adapter for PSE&G's Okta/SAML process to be added and verified
+without rewriting forms and state transitions.
+
+## Run offline tests (Python 3.11+)
+
+From this extracted folder:
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q custom_components/pseg_mymeter
+```
+
+No changes were applied to Home Assistant Tuvix or your GitHub repository.
