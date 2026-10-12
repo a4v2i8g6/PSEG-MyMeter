@@ -26,10 +26,10 @@ class PsegMyMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await client.fetch_usage()
             except ValueError:
                 errors["base"] = "invalid_cookie"
-            except AuthenticationRequired:
-                errors["base"] = "invalid_auth"
-            except SourceUnavailable:
-                errors["base"] = "cannot_connect"
+            except AuthenticationRequired as exc:
+                errors["base"] = exc.code
+            except SourceUnavailable as exc:
+                errors["base"] = exc.code
             else:
                 await self.async_set_unique_id("pseg_single_meter")
                 self._abort_if_unique_id_configured()
@@ -51,10 +51,10 @@ class PsegMyMeterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await MyMeterClient(async_get_clientsession(self.hass), cookie).fetch_usage()
             except ValueError:
                 errors["base"] = "invalid_cookie"
-            except AuthenticationRequired:
-                errors["base"] = "invalid_auth"
-            except SourceUnavailable:
-                errors["base"] = "cannot_connect"
+            except AuthenticationRequired as exc:
+                errors["base"] = exc.code
+            except SourceUnavailable as exc:
+                errors["base"] = exc.code
             else:
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(),

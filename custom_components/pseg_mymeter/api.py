@@ -1,11 +1,10 @@
-"""Read-only MyMeter session client.
+"""Read-only, experimental MyMeter cookie-backed client.
 
-An experimental cookie-backed adapter, NOT an implementation of PSE&G SSO.
-Cookie values must only be supplied inside the user's own Home Assistant UI.
+PSE&G My Account SSO and MFA are *not* supported. Never log or send cookies,
+response bodies, or redirect query strings to issue trackers / chat.
 """
 import asyncio
 import json
-from collections.abc import Mapping
 
 import aiohttp
 
@@ -14,19 +13,46 @@ from .parser import ChartDataError, extract_intervals
 
 
 class AuthenticationRequired(Exception):
-    """MyMeter cookie no longer authenticates data requests."""
+    """Explicit authentication rejection, not a generic parsing failure."""
+    code = "invalid_auth"
+
+
+class LoginRedirect(AuthenticationRequired):
+    """Server sent a redirect, generally into login."""
+    code = "login_redirect"
+
+
+class AccessDenied(AuthenticationRequired):
+    """Server returned HTTP 401 or 403."""
+    code = "access_denied"
 
 
 class SourceUnavailable(Exception):
-    """MyMeter endpoint failed for a non-authentication reason."""
+    """Request/data problem; cannot assume the cookie is invalid."""
+    code = "cannot_connect"
+
+
+class NonJsonResponse(SourceUnavailable):
+    """Unexpected HTML/text (which might be a sign-in page)."""
+    code = "non_json"
+
+
+class ChartSettingsError(SourceUnavailable):
+    """JSON arrived but did not contain expected 15-minute kWh data."""
+    code = "chart_settings"
+
+
+class ServerError(SourceUnavailable):
+    """Unexpected HTTP status or oversized response."""
+    code = "server_error"
 
 
 def validate_cookie_string(cookie: str) -> str:
-    """Require browser Cookie *value* only, not a HAR/cURL or headers dump."""
+    """Require Cookie header VALUE only, without any other headers."""
     cookie = cookie.strip()
     if not cookie or "\n" in cookie or "\r" in cookie or "Cookie:" in cookie:
         raise ValueError("Enter only the Cookie header value, without 'Cookie:'")
-    if ";" not in cookie and "=" not in cookie:
+    if "=" not in cookie:
         raise ValueError("Expected name=value session cookie")
     if len(cookie) > 16000:
         raise ValueError("Cookie value is unusually long")
@@ -34,40 +60,58 @@ def validate_cookie_string(cookie: str) -> str:
 
 
 class MyMeterClient:
-    """Fetch and validate chart data using a preexisting user browser session."""
+    """Fetch chart data using a session cookie from the user's browser."""
 
     def __init__(self, session: aiohttp.ClientSession, cookie: str) -> None:
         self.session = session
         self.cookie = validate_cookie_string(cookie)
 
     async def fetch_usage(self) -> tuple[dict, list]:
+        # Use normal browser AJAX request headers. They don't substitute for
+        # a valid SSO session and may need changes as PSE&G's portal changes.
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/155.0.0.0 Safari/537.36"
+            ),
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": MYMETER_ROOT,
+            "Referer": MYMETER_ROOT.rstrip("/") + "/Dashboard",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
             "Cookie": self.cookie,
         }
         try:
-            # Let redirects happen only to classify login vs data (never send
-            # cookie on cross-domain redirect: aiohttp drops Authorization,
-            # but not necessarily a custom Cookie header). For safety turn
-            # redirects off and treat 3xx as authentication failures.
             async with asyncio.timeout(25):
-                async with self.session.get(
-                    CHART_URL, headers=headers, allow_redirects=False,
-                ) as resp:
-                    if resp.status in (301, 302, 303, 307, 308, 401, 403):
-                        raise AuthenticationRequired("PSE&G requires login again")
+                async with self.session.get(CHART_URL, headers=headers, allow_redirects=False) as resp:
+                    # Never follow a redirect: don't leak a session cookie to an
+                    # external SSO domain. Do not record the Location URL.
+                    if resp.status in (301, 302, 303, 307, 308):
+                        raise LoginRedirect("The request was redirected (probably to sign-in).")
+                    if resp.status in (401, 403):
+                        raise AccessDenied("MyMeter rejected access (HTTP 401/403).")
                     if resp.status != 200:
-                        raise SourceUnavailable(f"MyMeter HTTP {resp.status}")
-                    # Avoid accepting an HTML login page returned with 200.
-                    if "json" not in resp.headers.get("Content-Type", "").lower():
-                        raise AuthenticationRequired("MyMeter returned non-JSON login content")
+                        raise ServerError(f"MyMeter returned HTTP {resp.status}.")
+                    # Some servers mislabel JSON with text/html or text/plain.
+                    # Do not mistake a successful JSON response for bad auth.
+                    raw = await resp.content.read(10 * 1024 * 1024 + 1)
+                    if len(raw) > 10 * 1024 * 1024:
+                        raise ServerError("MyMeter response too large.")
                     try:
-                        payload = await resp.json(content_type=None)
+                        payload = json.loads(raw)
+                    except (ValueError, UnicodeError) as exc:
+                        raise NonJsonResponse(
+                            "MyMeter returned non-JSON content; may be a login or error page."
+                        ) from exc
+                    try:
                         intervals = extract_intervals(payload)
-                    except (ValueError, json.JSONDecodeError, ChartDataError) as exc:
-                        raise SourceUnavailable("Unexpected chart response or chart settings") from exc
+                    except (ChartDataError, TypeError, AttributeError) as exc:
+                        raise ChartSettingsError(
+                            "JSON received, but not 15-minute Consumption (kWh) chart data."
+                        ) from exc
                     return payload, intervals
         except (aiohttp.ClientError, TimeoutError) as exc:
-            raise SourceUnavailable("Unable to reach PSE&G MyMeter") from exc
+            raise SourceUnavailable("Network or timeout error contacting PSE&G.") from exc
