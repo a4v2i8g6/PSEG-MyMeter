@@ -33,8 +33,28 @@ class SourceUnavailable(Exception):
 
 
 class NonJsonResponse(SourceUnavailable):
-    """Unexpected HTML/text (which might be a sign-in page)."""
+    """An HTTP 200 response that is not meter JSON."""
     code = "non_json"
+
+
+class LoginHtmlResponse(NonJsonResponse):
+    """MyMeter seems to be presenting a sign-in page with HTTP 200."""
+    code = "html_login"
+
+
+class SecurityHtmlResponse(NonJsonResponse):
+    """MyMeter seems to be presenting a browser/security challenge."""
+    code = "html_security"
+
+
+class OtherHtmlResponse(NonJsonResponse):
+    """MyMeter presented another HTML page, not the meter JSON."""
+    code = "html_other"
+
+
+class OtherTextResponse(NonJsonResponse):
+    """MyMeter returned an unexpected non-JSON text response."""
+    code = "text_other"
 
 
 class ChartSettingsError(SourceUnavailable):
@@ -50,13 +70,41 @@ class ServerError(SourceUnavailable):
 def validate_cookie_string(cookie: str) -> str:
     """Require Cookie header VALUE only, without any other headers."""
     cookie = cookie.strip()
-    if not cookie or "\n" in cookie or "\r" in cookie or "Cookie:" in cookie:
+    if not cookie or "\n" in cookie or "\r" in cookie or cookie.casefold().startswith("cookie:"):
         raise ValueError("Enter only the Cookie header value, without 'Cookie:'")
     if "=" not in cookie:
         raise ValueError("Expected name=value session cookie")
     if len(cookie) > 16000:
         raise ValueError("Cookie value is unusually long")
     return cookie
+
+
+def classify_non_json(raw: bytes, content_type: str) -> type[NonJsonResponse]:
+    """Classify unexpected response safely, without surfacing any response data.
+
+    NOTE: do not log the URL, body, tokens, redirect targets or cookies.
+    Both the page source and response headers are untrusted input.
+    """
+    sample = raw[:100_000].decode("utf-8", errors="replace").casefold()
+    content_type = content_type.partition(";")[0].strip().casefold()
+    looks_html = (
+        "<!doctype html" in sample or "<html" in sample
+        or "<form" in sample or content_type in ("text/html", "application/xhtml+xml")
+    )
+    if not looks_html:
+        return OtherTextResponse
+    # Prefer challenge detection: challenge pages frequently say 'sign in'.
+    if any(x in sample for x in (
+        "cloudflare", "captcha", "checking your browser", "verify you are human",
+        "security challenge", "access to this page has been denied", "please enable javascript",
+    )):
+        return SecurityHtmlResponse
+    if any(x in sample for x in (
+        'type="password"', "type='password'", "saml", "okta", "sign in",
+        "signin", "log in", "login", "id.myaccount.pseg.com",
+    )):
+        return LoginHtmlResponse
+    return OtherHtmlResponse
 
 
 class MyMeterClient:
@@ -103,8 +151,9 @@ class MyMeterClient:
                     try:
                         payload = json.loads(raw)
                     except (ValueError, UnicodeError) as exc:
-                        raise NonJsonResponse(
-                            "MyMeter returned non-JSON content; may be a login or error page."
+                        response_error = classify_non_json(raw, resp.headers.get("Content-Type", ""))
+                        raise response_error(
+                            "MyMeter did not return meter JSON (safe response classification)."
                         ) from exc
                     try:
                         intervals = extract_intervals(payload)

@@ -25,7 +25,11 @@
       "access_denied": "MyMeter returned HTTP 401/403. The cookie was rejected or the request is missing required authentication.",
       "non_json": "MyMeter returned text/HTML rather than JSON. This may be a login page or an incompatible browser request.",
       "chart_settings": "MyMeter returned JSON, but not 15-minute Consumption (kWh) readings. Check the chart selection in MyMeter.",
-      "server_error": "MyMeter returned an unexpected HTTP status or unusually large response."
+      "server_error": "MyMeter returned an unexpected HTTP status or unusually large response.",
+      "html_login": "MyMeter sent a login/SSO page instead of meter JSON. The Chrome cookie alone is not enough to authenticate this request.",
+      "html_security": "MyMeter sent a browser verification/security page instead of meter JSON. A plain Home Assistant HTTP request may be blocked.",
+      "html_other": "MyMeter sent an unexpected HTML page rather than meter JSON. The request may require extra browser/session state.",
+      "text_other": "MyMeter returned unexpected text rather than meter JSON. The current method is incompatible with this response."
     },
     "abort": {
       "already_configured": "This MyMeter account is already configured",
